@@ -7,7 +7,7 @@ st.set_page_config(page_title="XCO Pro AI Coach", layout="wide", page_icon="🚵
 
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-pro')
 else:
     st.error("⚠️ Falta GOOGLE_API_KEY en Secrets.")
 
