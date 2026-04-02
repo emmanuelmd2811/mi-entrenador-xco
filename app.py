@@ -1,71 +1,85 @@
 import streamlit as st
 import google.generativeai as genai
-from fitparse import FitFile
-import pandas as pd
 import datetime
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="XCO Coach AI", layout="wide")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="XCO Pro-Elite Coach", layout="wide", page_icon="🧪")
 
-# Conectar con la API de Google (La llave la pondrás en Secrets de Streamlit)
+# --- CONEXIÓN IA (GEMINI) ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash') # Modelo rápido y gratuito
+    model = genai.GenerativeModel('gemini-1.5-flash')
 else:
-    st.error("⚠️ Falta la configuración de la API Key en Secrets.")
+    st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets de Streamlit.")
 
-# --- LÓGICA DE PROCESAMIENTO ---
-def analizar_entreno(archivo, comentarios):
-    # Simulación de extracción de datos del archivo .FIT
-    # (Para simplificar, extraemos duración y pulso si el archivo es válido)
-    try:
-        fitfile = FitFile(archivo)
-        puntos = []
-        for record in fitfile.get_messages('record'):
-            puntos.append(record.get_value('heart_rate'))
-        
-        fc_media = sum(filter(None, puntos)) / len(puntos) if puntos else 0
-        duracion = len(puntos) // 60
-        
-        # PROMPT PARA LA IA
-        prompt = f"""
-        Eres un entrenador experto en MTB XCO. 
-        Datos del atleta: 3 años de experiencia, 4º lugar estatal.
-        Meta: Carrera técnica con drops el 19 de Abril.
-        Datos de hoy: {duracion} minutos, FC Media: {int(fc_media)} bpm.
-        Feedback del atleta: "{comentarios}"
-        Analiza si el entrenamiento fue efectivo y da una recomendación específica para mañana considerando que estamos en fase de Tapering.
-        Responde corto y motivador en español.
-        """
-        response = model.generate_content(prompt)
-        return response.text, fc_media, duracion
-    except Exception as e:
-        return f"Error leyendo el archivo: {e}", 0, 0
-
-# --- INTERFAZ ---
-st.title("🚵‍♂️ XCO AI-Coach (Powered by Gemini)")
-
-col_plan, col_coach = st.columns([1, 1])
-
-with col_plan:
-    st.header("📅 Tu Plan")
-    dias = (datetime.date(2026, 4, 19) - datetime.date.today()).days
-    st.metric("Días para el 19-Abr", dias)
+# --- BARRA LATERAL: CONFIGURACIÓN DEL ATLETA ---
+with st.sidebar:
+    st.header("👤 Perfil del Atleta")
+    experiencia = st.selectbox("Nivel", ["Amateur", "Competitivo Estatal", "Elite"])
+    fc_max = st.number_input("Frecuencia Cardíaca Máxima (BPM)", value=190)
     
-    # Lógica de días (Ejemplo Jueves)
-    st.info("**Hoy toca (1h Máx):** Intervalos Z4 + Sprints cortos. ¡No te pases de tiempo!")
-
-with col_coach:
-    st.header("🤖 Análisis del Coach")
-    archivo = st.file_uploader("Sube tu archivo .FIT de Garmin/Wahoo", type=["fit"])
-    feedback_usuario = st.text_area("¿Cómo sentiste las piernas y la técnica hoy?")
+    st.header("🎯 Mi Gran Carrera")
+    fecha_carrera = st.date_input("¿Cuándo es tu evento?", datetime.date(2026, 4, 19))
+    tipo_circuito = st.multiselect("Características", ["Técnico", "Subidas Cortas", "Drops", "Rodador"], default=["Técnico", "Subidas Cortas"])
     
-    if st.button("Enviar al Coach"):
-        if archivo and feedback_usuario:
-            with st.spinner("Analizando con IA..."):
-                respuesta, fc, tiempo = analizar_entreno(archivo, feedback_usuario)
-                st.subheader("Dictamen del Coach:")
-                st.write(respuesta)
-                st.sidebar.write(f"Última FC Media: {int(fc)}")
-        else:
-            st.warning("Sube el archivo y escribe tus sensaciones.")
+    st.markdown("---")
+    st.write("📌 **Zonas de Pulso sugeridas:**")
+    st.caption(f"Z2 (Base): {int(fc_max*0.6)} - {int(fc_max*0.7)} bpm")
+    st.caption(f"Z4 (Umbral): {int(fc_max*0.85)} - {int(fc_max*0.9)} bpm")
+
+# --- LÓGICA DE DÍAS ---
+dias_restantes = (fecha_carrera - datetime.date.today()).days
+if dias_restantes <= 10: fase = "Tapering (Puesta a punto)"
+elif dias_restantes <= 30: fase = "Construcción Específica"
+else: fase = "Base Aeróbica"
+
+# --- CUERPO PRINCIPAL ---
+st.title(f"🏆 Plan de Entrenamiento: {fase}")
+st.subheader(f"Faltan {dias_restantes} días para tu objetivo")
+
+tab_bici, tab_gym, tab_ia = st.tabs(["🚲 Sesión Bici", "🏋️ Gym & Core", "🧠 Consultar al Coach"])
+
+with tab_bici:
+    st.header("Entrenamiento en Ruta/Trail")
+    dia = datetime.datetime.now().strftime("%A")
+    planes_bici = {
+        "Tuesday": "1h Intervalos 30/30: 15' cal + 2 bloques de 8x(30'' Z5 / 30'' Z2) + 10' soltar.",
+        "Thursday": "1h Umbral: 15' cal + 3x8' Z4 con sprint 10'' cada 2 min + 10' soltar.",
+        "Saturday": "1.5h Simulacro: Ritmo carrera en circuito técnico. Enfócate en los drops.",
+        "Sunday": "2.5h Fondo Z2: Rodaje constante, cadencia fluida."
+    }
+    st.success(planes_bici.get(dia, "Hoy toca descanso activo o rodaje muy suave (45 min Z1)."))
+
+with tab_gym:
+    st.header("Fortalecimiento XCO")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🏋️ Fuerza (Martes/Jueves)")
+        st.write("- **Sentadilla Búlgara:** 3x8 (Potencia en cada pierna).")
+        st.write("- **Peso Muerto Rumano:** 3x10 (Cadena posterior para subidas).")
+        st.write("- **Push Press:** 3x8 (Para absorber impactos de drops).")
+    with col2:
+        st.subheader("🧘 Core Específico (Lunes/Miércoles/Viernes)")
+        st.write("- **Plancha con toque de hombros:** 3x1 min (Estabilidad en manillar).")
+        st.write("- **Deadbug:** 3x15 (Control pélvico al pedalear sentado).")
+        st.write("- **Lumbar (Superman):** 3x12 (Evita dolor de espalda en subidas largas).")
+
+with tab_ia:
+    st.header("Análisis de Sesión")
+    feedback = st.text_area("Cuéntame: ¿Cómo te sentiste? ¿Hubo dolor? ¿Cumpliste los tiempos?")
+    if st.button("Obtener Feedback del Coach"):
+        with st.spinner("Analizando con Gemini..."):
+            prompt = f"""Atleta {experiencia} con carrera {tipo_circuito} en {dias_restantes} días. 
+            Dijo: {feedback}. 
+            Dame feedback técnico de XCO y ajusta el entreno de mañana si es necesario."""
+            response = model.generate_content(prompt)
+            st.markdown(f"**🤖 AI Coach dice:** {response.text}")
+
+# --- ELEMENTOS "APP TOP" ---
+st.markdown("---")
+st.subheader("🛠️ Check-list Mecánico Pro")
+c1, c2, c3, c4 = st.columns(4)
+c1.checkbox("Presión de llantas")
+c2.checkbox("Lubricación de cadena")
+c3.checkbox("Presión de suspensiones")
+c4.checkbox("Tornillería general")
