@@ -2,84 +2,83 @@ import streamlit as st
 import google.generativeai as genai
 import datetime
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="XCO Pro-Elite Coach", layout="wide", page_icon="🧪")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="XCO Pro AI Coach", layout="wide", page_icon="🚵‍♂️")
 
-# --- CONEXIÓN IA (GEMINI) ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     model = genai.GenerativeModel('gemini-1.5-flash')
 else:
-    st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets de Streamlit.")
+    st.error("⚠️ Falta GOOGLE_API_KEY en Secrets.")
 
-# --- BARRA LATERAL: CONFIGURACIÓN DEL ATLETA ---
+# --- BARRA LATERAL: ENTRADA DE DATOS REALES ---
 with st.sidebar:
-    st.header("👤 Perfil del Atleta")
-    experiencia = st.selectbox("Nivel", ["Amateur", "Competitivo Estatal", "Elite"])
-    fc_max = st.number_input("Frecuencia Cardíaca Máxima (BPM)", value=190)
+    st.header("🎯 Configuración de Objetivo")
+    # AQUÍ ELIGES TU CARRERA LIBREMENTE
+    nombre_evento = st.text_input("Nombre de la carrera", "Campeonato Estatal")
+    fecha_evento = st.date_input("Fecha del evento", datetime.date(2026, 4, 19))
+    tipo_evento = st.selectbox("Tipo de carrera", ["XCO (Corto/Técnico)", "XCM (Maratón)", "Eliminator"])
     
-    st.header("🎯 Mi Gran Carrera")
-    fecha_carrera = st.date_input("¿Cuándo es tu evento?", datetime.date(2026, 4, 19))
-    tipo_circuito = st.multiselect("Características", ["Técnico", "Subidas Cortas", "Drops", "Rodador"], default=["Técnico", "Subidas Cortas"])
+    st.header("📊 Perfil Físico")
+    fc_max = st.number_input("FC Máxima", value=190)
+    experiencia = st.slider("Años de experiencia", 1, 20, 3)
     
-    st.markdown("---")
-    st.write("📌 **Zonas de Pulso sugeridas:**")
-    st.caption(f"Z2 (Base): {int(fc_max*0.6)} - {int(fc_max*0.7)} bpm")
-    st.caption(f"Z4 (Umbral): {int(fc_max*0.85)} - {int(fc_max*0.9)} bpm")
+    st.header("🔋 Estado Actual")
+    sueno = st.select_slider("Calidad de sueño", options=["Mala", "Regular", "Buena", "Excelente"])
+    dolor_piernas = st.slider("Dolor/Fatiga de piernas (1-10)", 1, 10, 3)
 
-# --- LÓGICA DE DÍAS ---
-dias_restantes = (fecha_carrera - datetime.date.today()).days
-if dias_restantes <= 10: fase = "Tapering (Puesta a punto)"
-elif dias_restantes <= 30: fase = "Construcción Específica"
-else: fase = "Base Aeróbica"
+# --- CÁLCULO DE FASE DE ENTRENAMIENTO ---
+hoy = datetime.date.today()
+dias_para_meta = (fecha_evento - hoy).days
 
-# --- CUERPO PRINCIPAL ---
-st.title(f"🏆 Plan de Entrenamiento: {fase}")
-st.subheader(f"Faltan {dias_restantes} días para tu objetivo")
+def obtener_fase(dias):
+    if dias < 0: return "Post-Carrera / Recuperación"
+    if dias <= 10: return "Tapering (Puesta a punto final)"
+    if dias <= 40: return "Construcción (Intensidad y técnica)"
+    return "Base (Resistencia y Fuerza)"
 
-tab_bici, tab_gym, tab_ia = st.tabs(["🚲 Sesión Bici", "🏋️ Gym & Core", "🧠 Consultar al Coach"])
+fase_actual = obtener_fase(dias_para_meta)
 
-with tab_bici:
-    st.header("Entrenamiento en Ruta/Trail")
-    dia = datetime.datetime.now().strftime("%A")
-    planes_bici = {
-        "Tuesday": "1h Intervalos 30/30: 15' cal + 2 bloques de 8x(30'' Z5 / 30'' Z2) + 10' soltar.",
-        "Thursday": "1h Umbral: 15' cal + 3x8' Z4 con sprint 10'' cada 2 min + 10' soltar.",
-        "Saturday": "1.5h Simulacro: Ritmo carrera en circuito técnico. Enfócate en los drops.",
-        "Sunday": "2.5h Fondo Z2: Rodaje constante, cadencia fluida."
-    }
-    st.success(planes_bici.get(dia, "Hoy toca descanso activo o rodaje muy suave (45 min Z1)."))
+# --- GENERADOR DINÁMICO DE ENTRENAMIENTO (IA) ---
+st.title(f"🚀 Coach IA: Fase de {fase_actual}")
+st.write(f"Preparación para: **{nombre_evento}** | Faltan **{dias_para_meta}** días.")
 
-with tab_gym:
-    st.header("Fortalecimiento XCO")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("🏋️ Fuerza (Martes/Jueves)")
-        st.write("- **Sentadilla Búlgara:** 3x8 (Potencia en cada pierna).")
-        st.write("- **Peso Muerto Rumano:** 3x10 (Cadena posterior para subidas).")
-        st.write("- **Push Press:** 3x8 (Para absorber impactos de drops).")
-    with col2:
-        st.subheader("🧘 Core Específico (Lunes/Miércoles/Viernes)")
-        st.write("- **Plancha con toque de hombros:** 3x1 min (Estabilidad en manillar).")
-        st.write("- **Deadbug:** 3x15 (Control pélvico al pedalear sentado).")
-        st.write("- **Lumbar (Superman):** 3x12 (Evita dolor de espalda en subidas largas).")
+# Botón para que la IA genere el entreno personalizado
+if st.button("✨ Generar mi entrenamiento personalizado de hoy"):
+    with st.spinner("La IA está analizando tu calendario y tu estado físico..."):
+        
+        # Este prompt es el que elimina los ejercicios predeterminados
+        prompt_entreno = f"""
+        Actúa como un entrenador de MTB nivel Copa del Mundo. 
+        ATLETA: {experiencia} años de experiencia, FC Max {fc_max}.
+        OBJETIVO: Carrera {tipo_evento} el {fecha_evento} (faltan {dias_para_meta} días).
+        ESTADO HOY: Sueño {sueno}, Fatiga de piernas {dolor_piernas}/10.
+        TAREA: 
+        1. Genera una sesión de BICI (máximo 1h si es entre semana, más si es fin de semana).
+        2. Genera una sesión de GYM o CORE que complemente la bici sin sobrecargar.
+        3. Da un consejo técnico para los drops/curvas.
+        No uses rutinas genéricas. Ajusta la intensidad a los días que faltan para la carrera.
+        Responde con formato limpio usando negritas.
+        """
+        
+        response = model.generate_content(prompt_entreno)
+        
+        # Mostrar el resultado
+        st.markdown("---")
+        st.markdown(response.text)
 
-with tab_ia:
-    st.header("Análisis de Sesión")
-    feedback = st.text_area("Cuéntame: ¿Cómo te sentiste? ¿Hubo dolor? ¿Cumpliste los tiempos?")
-    if st.button("Obtener Feedback del Coach"):
-        with st.spinner("Analizando con Gemini..."):
-            prompt = f"""Atleta {experiencia} con carrera {tipo_circuito} en {dias_restantes} días. 
-            Dijo: {feedback}. 
-            Dame feedback técnico de XCO y ajusta el entreno de mañana si es necesario."""
-            response = model.generate_content(prompt)
-            st.markdown(f"**🤖 AI Coach dice:** {response.text}")
-
-# --- ELEMENTOS "APP TOP" ---
+# --- SECCIÓN DE ANÁLISIS DE DATOS (FIT) ---
 st.markdown("---")
-st.subheader("🛠️ Check-list Mecánico Pro")
-c1, c2, c3, c4 = st.columns(4)
-c1.checkbox("Presión de llantas")
-c2.checkbox("Lubricación de cadena")
-c3.checkbox("Presión de suspensiones")
-c4.checkbox("Tornillería general")
+st.header("📈 Cargar datos de entrenamiento (.FIT)")
+archivo_fit = st.file_uploader("Sube tu archivo de Garmin/Wahoo para que el Coach te de feedback", type=["fit"])
+
+if archivo_fit:
+    st.success("Archivo cargado. En la versión Pro, aquí la IA compararía lo planeado vs lo realizado.")
+
+# --- TABLA DE ZONAS DINÁMICA ---
+with st.expander("Ver mis zonas de entrenamiento hoy"):
+    st.write(f"Z1 (Recuperación): < {int(fc_max*0.6)} bpm")
+    st.write(f"Z2 (Base): {int(fc_max*0.6)} - {int(fc_max*0.75)} bpm")
+    st.write(f"Z3 (Tempo): {int(fc_max*0.75)} - {int(fc_max*0.85)} bpm")
+    st.write(f"Z4 (Umbral): {int(fc_max*0.85)} - {int(fc_max*0.92)} bpm")
+    st.write(f"Z5 (Anaeróbico): > {int(fc_max*0.92)} bpm")
