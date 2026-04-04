@@ -52,42 +52,48 @@ if 'configurado' not in st.session_state:
 if 'historial_entrenamientos' not in st.session_state:
     st.session_state['historial_entrenamientos'] = {}
 
-# --- 4. ONBOARDING CON MODALIDADES ESPECÍFICAS ---
+# --- 4. ONBOARDING DINÁMICO (FUERA DE FORM PARA REACTIVIDAD) ---
 if not st.session_state['configurado']:
     st.title("🎯 Configura tu Perfil de Atleta")
     with st.container(border=True):
-        with st.form("onboarding_completo"):
-            col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Quitamos el form de aquí para que el selectbox refresque la página al cambiar
+            deporte_sel = st.selectbox("Selecciona tu Deporte", ["Ciclismo", "Running", "Trail Running", "Triatlón"])
             
-            with col1:
-                deporte = st.selectbox("Selecciona tu Deporte", ["Ciclismo", "Running", "Trail Running", "Triatlón"])
-                
-                # LÓGICA ANIDADA RECUPERADA
-                if deporte == "Ciclismo":
-                    modalidad = st.selectbox("Especialidad", ["XCO (Cross Country)", "XCM (Maratón)", "Ruta", "Enduro", "Gravel"])
-                elif deporte == "Running":
-                    modalidad = st.selectbox("Distancia Objetivo", ["5K", "10K", "21K (Medio Maratón)", "42K (Maratón)", "Milla"])
-                elif deporte == "Trail Running":
-                    modalidad = st.selectbox("Tipo de Trail", ["Short Trail (<21k)", "Trail (21-42k)", "Ultra Trail (>42k)"])
-                elif deporte == "Triatlón":
-                    modalidad = st.selectbox("Distancia", ["Sprint", "Olímpico", "70.3 (Medio)", "140.6 (Full)"])
-                
-                nombre_evento = st.text_input("Nombre de la meta", "Mi Competencia")
+            # Lógica de modalidades según el deporte seleccionado
+            if deporte_sel == "Ciclismo":
+                modalidad_opciones = ["XCO (Cross Country)", "XCM (Maratón)", "Ruta", "Enduro", "Gravel"]
+            elif deporte_sel == "Running":
+                modalidad_opciones = ["5K", "10K", "21K (Medio Maratón)", "42K (Maratón)", "Milla"]
+            elif deporte_sel == "Trail Running":
+                modalidad_opciones = ["Short Trail (<21k)", "Trail (21-42k)", "Ultra Trail (>42k)"]
+            else:
+                modalidad_opciones = ["Sprint", "Olímpico", "70.3 (Medio)", "140.6 (Full)"]
             
-            with col2:
-                fecha_c = st.date_input("Fecha del Evento", hoy + datetime.timedelta(days=60))
-                nivel = st.select_slider("Nivel", options=["Principiante", "Intermedio", "Avanzado", "Elite"])
-                dias_w = st.slider("Días disponibles/semana", 1, 7, 5)
-            
-            if st.form_submit_button("🚀 Crear Plan Maestro"):
-                st.session_state.update({
-                    'deporte': deporte, 'modalidad': modalidad, 'nombre_carrera': nombre_evento,
-                    'fecha_carrera': fecha_c, 'nivel': nivel, 'dias_w': dias_w, 'configurado': True
-                })
-                st.rerun()
+            modalidad_sel = st.selectbox("Especialidad / Distancia", modalidad_opciones)
+            nombre_evento = st.text_input("Nombre de la meta", "Mi Competencia")
+        
+        with col2:
+            fecha_c = st.date_input("Fecha del Evento", hoy + datetime.timedelta(days=60))
+            nivel = st.select_slider("Nivel", options=["Principiante", "Intermedio", "Avanzado", "Elite"])
+            dias_w = st.slider("Días disponibles/semana", 1, 7, 5)
+        
+        if st.button("🚀 Crear mi Plan Maestro"):
+            st.session_state.update({
+                'deporte': deporte_sel, 
+                'modalidad': modalidad_sel, 
+                'nombre_carrera': nombre_evento,
+                'fecha_carrera': fecha_c, 
+                'nivel': nivel, 
+                'dias_w': dias_w, 
+                'configurado': True
+            })
+            st.rerun()
     st.stop()
 
-# --- 5. AJUSTE SEMANAL (Feedback de días pasados) ---
+# --- 5. AJUSTE SEMANAL (Feedback) ---
 if semana_id not in st.session_state['historial_entrenamientos']:
     st.title(f"📅 Ajuste de Semana ({dia_actual_nombre})")
     with st.container(border=True):
@@ -138,7 +144,7 @@ def extraer_dia_robusto(dia, texto):
     res = re.findall(pattern, texto, re.DOTALL | re.IGNORECASE)
     if res:
         return res[0].strip()
-    # Intento B: Si la IA no usa corchetes
+    # Intento B: Si la IA no usa corchetes correctamente
     pattern_alt = rf"{dia}:(.*?)(?={dias_semana_es}|$)"
     res_alt = re.findall(pattern_alt, texto, re.DOTALL | re.IGNORECASE)
     return res_alt[0].strip() if res_alt else "Plan no disponible para este día."
@@ -155,8 +161,12 @@ for i, nombre_dia in enumerate(dias_visibles):
             for j in range(1, len(partes), 2):
                 titulo = partes[j].replace("*", "")
                 with st.container(border=True):
-                    icon = "🚵‍♂️" if st.session_state['deporte'] == "Ciclismo" else "🏃‍♂️"
-                    icon = "🏋️" if "FUERZA" in titulo.upper() else "🍎" if "NUTRI" in titulo.upper() else icon
+                    # Iconos dinámicos
+                    if "ENTRENAMIENTO" in titulo.upper():
+                        icon = "🚵‍♂️" if st.session_state['deporte'] == "Ciclismo" else "🏃‍♂️"
+                    elif "FUERZA" in titulo.upper(): icon = "🏋️"
+                    else: icon = "🍎"
+                    
                     st.markdown(f"#### {icon} {titulo}")
                     st.write(partes[j+1].strip())
         else:
