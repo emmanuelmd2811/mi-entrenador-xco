@@ -26,35 +26,40 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. FUNCIONES DE APOYO (LIMPIEZA DE TEXTO) ---
+# --- 2. FUNCIONES DE APOYO (ROBUSTEZ MEJORADA) ---
 def normalizar(texto):
-    """Elimina tildes y pasa a mayúsculas para comparar sin errores."""
-    return ''.join(c for c in unicodedata.normalize('NFD', texto)
-                  if unicodedata.category(c) != 'Mn').upper()
+    """Limpia el texto de tildes y caracteres especiales para comparaciones seguras."""
+    if not texto: return ""
+    return ''.join(c for c in unicodedata.normalize('NFD', str(texto))
+                  if unicodedata.category(c) != 'Mn').upper().strip()
 
 def guardar_en_disco(datos):
-    with open(CONFIG_FILE, "w") as f:
-        # Usamos una copia para no modificar el objeto original
-        copia = datos.copy()
+    try:
+        # Convertimos session_state a un dict limpio para JSON
+        copia = {k: v for k, v in datos.items() if k != 'model'}
         if 'fecha_carrera' in copia:
             copia['fecha_carrera'] = str(copia['fecha_carrera'])
-        json.dump(copia, f)
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(copia, f)
+    except Exception as e:
+        st.error(f"Error al guardar: {e}")
 
 def cargar_desde_disco():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 datos = json.load(f)
-                if 'fecha_carrera' in datos:
+                if 'fecha_carrera' in datos and datos['fecha_carrera']:
                     datos['fecha_carrera'] = datetime.date.fromisoformat(datos['fecha_carrera'])
                 return datos
         except: return None
     return None
 
-# --- 3. CONEXIÓN IA ---
+# --- 3. CONEXIÓN IA (Actualizado a modelo estable) ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel('models/gemini-2.5-flash')
+    # Se recomienda gemini-1.5-flash por estabilidad y velocidad
+    model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets.")
     st.stop()
@@ -70,13 +75,12 @@ if 'configurado' not in st.session_state:
     datos_viejos = cargar_desde_disco()
     if datos_viejos:
         st.session_state.update(datos_viejos)
-        st.session_state['configurado'] = True
     else:
         st.session_state['configurado'] = False
         st.session_state['historial_entrenamientos'] = {}
 
 # --- 5. ONBOARDING ---
-if not st.session_state['configurado']:
+if not st.session_state.get('configurado'):
     st.title("🎯 Configura tu Perfil")
     with st.container(border=True):
         col1, col2 = st.columns(2)
@@ -94,7 +98,7 @@ if not st.session_state['configurado']:
         if st.button("🚀 Crear mi Plan Maestro"):
             st.session_state.update({'deporte': deporte_sel, 'modalidad': modalidad_sel, 'nombre_carrera': nombre_evento,
                                     'fecha_carrera': fecha_c, 'nivel': nivel, 'dias_w': dias_w, 'configurado': True, 'historial_entrenamientos': {}})
-            guardar_en_disco(st.session_state.to_dict())
+            guardar_en_disco(st.session_state)
             st.rerun()
     st.stop()
 
@@ -102,17 +106,25 @@ if not st.session_state['configurado']:
 if semana_id not in st.session_state['historial_entrenamientos']:
     st.title(f"📅 Ajuste de Semana ({dia_actual_nombre})")
     with st.form("ajuste"):
-        resumen = st.text_area("¿Cómo entrenaste de lunes a ayer?")
+        resumen = st.text_area("¿Cómo entrenaste los últimos días?")
         fatiga = st.slider("Fatiga (1-10)", 1, 10, 5)
         if st.form_submit_button("Generar Plan Adaptado"):
-            prompt = f"""Coach de {st.session_state['deporte']} {st.session_state['modalidad']}. Carrera {st.session_state['nombre_carrera']}. 
-            Hoy es {dia_actual_nombre}. Feedback previo: {resumen}. Fatiga: {fatiga}. 
-            Genera plan hasta el domingo. Formato OBLIGATORIO: [DIA] (Ej: [SABADO], [DOMINGO]) 
-            con secciones **ENTRENAMIENTO PRINCIPAL**, **FUERZA/MOVILIDAD**, **NUTRICIÓN**."""
-            res = model.generate_content(prompt)
-            st.session_state['historial_entrenamientos'][semana_id] = res.text
-            guardar_en_disco(st.session_state.to_dict())
-            st.rerun()
+            with st.spinner("El Coach está diseñando tu plan..."):
+                prompt = f"""Coach experto. Genera un plan desde hoy {dia_actual_nombre} hasta el domingo para {st.session_state['deporte']}.
+                Objetivo: {st.session_state['nombre_carrera']}. Feedback: {resumen}. Fatiga: {fatiga}.
+                Es obligatorio usar este formato para cada día:
+                [NOMBRE DEL DIA]
+                **ENTRENAMIENTO PRINCIPAL**: ...
+                **FUERZA/MOVILIDAD**: ...
+                **NUTRICIÓN**: ...
+                """
+                try:
+                    res = model.generate_content(prompt)
+                    st.session_state['historial_entrenamientos'][semana_id] = res.text
+                    guardar_en_disco(st.session_state)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error con la IA: {e}")
     st.stop()
 
 # --- 7. DASHBOARD ---
@@ -120,60 +132,68 @@ st.title(f"🏆 {st.session_state['modalidad']} - {st.session_state['nombre_carr
 with st.sidebar:
     st.metric("Días para meta", (st.session_state['fecha_carrera'] - hoy).days)
     if st.button("🔄 Re-ajustar semana"):
-        del st.session_state['historial_entrenamientos'][semana_id]
-        guardar_en_disco(st.session_state.to_dict())
-        st.rerun()
+        if semana_id in st.session_state['historial_entrenamientos']:
+            del st.session_state['historial_entrenamientos'][semana_id]
+            guardar_en_disco(st.session_state)
+            st.rerun()
     if st.button("🗑️ Reset Todo"):
         if os.path.exists(CONFIG_FILE): os.remove(CONFIG_FILE)
         st.session_state.clear()
         st.rerun()
 
-# --- 8. VISUALIZACIÓN (CORRECCIÓN "PLAN NO DISPONIBLE") ---
-plan_actual = st.session_state['historial_entrenamientos'][semana_id]
+# --- 8. VISUALIZACIÓN (BÚSQUEDA ROBUSTA REESCRITA) ---
+plan_actual = st.session_state['historial_entrenamientos'].get(semana_id, "")
 dias_visibles = dias_semana_es[indice_hoy:] 
 tabs = st.tabs([f"🟢 {d}" if d == dia_actual_nombre else d for d in dias_visibles])
 
-def extraer_dia_ultra(dia_buscado, texto_completo):
-    # Normalizamos el texto de la IA para quitar tildes y facilitar la búsqueda
-    texto_norm = normalizar(texto_completo)
+def extraer_dia_inteligente(dia_buscado, texto_original):
+    if not texto_original: return "No hay plan generado."
+    
+    texto_norm = normalizar(texto_original)
     dia_norm = normalizar(dia_buscado)
     
-    # Buscamos la posición del día normalizado
-    # Intentamos con corchetes [SABADO] o solo SABADO:
-    posibles_formatos = [f"[{dia_norm}]", f"**{dia_norm}**", f"{dia_norm}:"]
+    # Patrones de búsqueda: [DIA], **DIA**, DIA:
+    patrones = [f"[{dia_norm}]", f"**{dia_norm}**", f"{dia_norm}:"]
     
     inicio = -1
-    for fmt in posibles_formatos:
-        inicio = texto_norm.find(fmt)
-        if inicio != -1: 
-            inicio += len(fmt)
+    for p in patrones:
+        inicio = texto_norm.find(p)
+        if inicio != -1:
+            inicio += len(p)
             break
             
-    if inicio == -1: return "Día de descanso o formato no detectado por el Coach."
+    if inicio == -1:
+        return "Día de descanso o descanso activo según el Coach."
     
-    # Buscamos dónde termina el bloque (el inicio del siguiente día o el final del texto)
+    # El final es el inicio del siguiente día mencionado en el texto
     fin = len(texto_norm)
     for d in dias_semana_es:
-        d_norm = normalizar(d)
-        pos_siguiente = texto_norm.find(f"[{d_norm}]", inicio)
-        if pos_siguiente == -1: pos_siguiente = texto_norm.find(f"**{d_norm}**", inicio)
-        
-        if pos_siguiente != -1 and pos_siguiente < fin:
-            fin = pos_siguiente
-            
-    return texto_completo[inicio:fin].strip()
+        dn = normalizar(d)
+        # Buscamos la posición de cualquier otro día después del inicio actual
+        for p_fin in [f"[{dn}]", f"**{dn}**"]:
+            pos = texto_norm.find(p_fin, inicio)
+            if pos != -1 and pos < fin:
+                fin = pos
+                
+    return texto_original[inicio:fin].strip()
 
 for i, nombre_dia in enumerate(dias_visibles):
     with tabs[i]:
-        contenido = extraer_dia_ultra(nombre_dia, plan_actual)
         if nombre_dia == dia_actual_nombre: st.success(f"⚡ OBJETIVO DE HOY")
         
-        # Identificar secciones por palabras clave
-        if "**ENTRENAMIENTO" in contenido.upper() or "**FUERZA" in contenido.upper():
-            partes = re.split(r'(\*\*ENTRENAMIENTO PRINCIPAL\*\*|\*\*FUERZA/MOVILIDAD\*\*|\*\*NUTRICIÓN\*\*|\*\*NUTRICION\*\*)', contenido, flags=re.IGNORECASE)
-            for j in range(1, len(partes), 2):
-                with st.container(border=True):
-                    st.markdown(f"#### {partes[j].replace('*', '')}")
-                    st.write(partes[j+1].strip())
+        contenido = extraer_dia_inteligente(nombre_dia, plan_actual)
+        
+        # Split inteligente que captura las secciones principales
+        # Busca cualquier variante de negritas para Entrenamiento, Fuerza o Nutrición
+        secciones = re.split(r'(\*\*ENTRENAMIENTO.*?\*\*|\*\*FUERZA.*?\*\*|\*\*NUTRICI.*?\*\*)', contenido, flags=re.IGNORECASE)
+        
+        if len(secciones) > 1:
+            for j in range(1, len(secciones), 2):
+                titulo = secciones[j].replace('*', '').strip()
+                texto = secciones[j+1].strip() if (j+1) < len(secciones) else ""
+                if texto:
+                    with st.container(border=True):
+                        st.markdown(f"#### {titulo}")
+                        st.write(texto)
         else:
             st.info(contenido)
