@@ -4,19 +4,36 @@ import datetime
 
 st.set_page_config(page_title="XCO Coach AI", layout="wide")
 
-# --- CONEXIÓN SEGURA ---
-if "GOOGLE_API_KEY" in st.secrets:
+# --- CONEXIÓN INTELIGENTE ---
+def configurar_modelo():
+    if "GOOGLE_API_KEY" not in st.secrets:
+        st.error("❌ No hay API Key en Secrets.")
+        return None
+
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+    
     try:
-        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-        # Intentamos usar el modelo pro que es el más estable
-        model = genai.GenerativeModel('models/gemini-1.5-flash')
-        # Prueba de conexión rápida
-        test_response = model.generate_content("Hola") 
+        # Buscamos qué modelos tienes disponibles que soporten generación de contenido
+        modelos_disponibles = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        
+        if not modelos_disponibles:
+            st.error("⚠️ Tu API Key no tiene modelos de generación permitidos.")
+            return None
+        
+        # Priorizamos Gemini 1.5 Flash, si no, el primero de la lista
+        modelo_nombre = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in modelos_disponibles else modelos_disponibles[0]
+        
+        st.sidebar.success(f"Conectado a: {modelo_nombre}")
+        return genai.GenerativeModel(modelo_nombre)
+        
     except Exception as e:
-        st.error(f"⚠️ Error de Conexión: {e}")
-        st.write("Tip: Revisa que tu API Key sea correcta y tenga permisos.")
-else:
-    st.error("❌ No se encontró la llave GOOGLE_API_KEY en los Secrets.")
+        st.error(f"⚠️ Error al listar modelos: {e}")
+        return None
+
+model = configurar_modelo()
 
 # --- BARRA LATERAL ---
 with st.sidebar:
@@ -26,20 +43,25 @@ with st.sidebar:
     fatiga = st.slider("Fatiga (1-10)", 1, 10, 5)
 
 # --- CUERPO ---
-st.title("🚵‍♂️ Mi Entrenador XCO")
+st.title("🚵‍♂️ Mi Entrenador XCO Pro")
 
-if st.button("✨ Generar Entrenamiento"):
+if st.button("✨ Generar Entrenamiento") and model:
     try:
         dias = (fecha_evento - datetime.date.today()).days
-        prompt = f"Soy ciclista XCO, mi carrera es en {dias} días. Mi fatiga es {fatiga}/10. Dame un entreno pro de 1h."
+        prompt = f"Actúa como coach de MTB XCO. Carrera en {dias} días. Fatiga {fatiga}/10. Dame un entrenamiento de 1h y uno de GYM/Core."
         
-        # Usamos gemini-pro que es el nombre universal
         response = model.generate_content(prompt)
         st.markdown(response.text)
         
     except Exception as e:
-        st.error(f"Hubo un problema: {e}")
-        st.info("Intentando listar modelos disponibles para tu cuenta...")
-        # Esto te ayudará a saber qué nombre poner
-        models = [m.name for m in genai.list_models()]
-        st.write("Modelos que tu llave permite usar:", models)
+        st.error(f"Error al generar: {e}")
+else:
+    if not model:
+        st.info("Esperando configuración correcta de la API Key...")
+
+# Mostrar historial de modelos si falla (para depuración)
+if st.checkbox("Debug: Ver modelos permitidos"):
+    try:
+        st.write([m.name for m in genai.list_models()])
+    except:
+        st.write("No se pudo listar. Revisa tu API Key.")
