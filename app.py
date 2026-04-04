@@ -57,11 +57,14 @@ def cargar_datos():
         except: return None
     return None
 
-# --- 3. CONEXIÓN IA (Modelo Actualizado para evitar Error 404) ---
+# --- 3. CONEXIÓN IA (Actualizado a Gemini 1.5 Flash - Máxima compatibilidad) ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    # Cambiamos a 'gemini-pro' para máxima compatibilidad
-    model = genai.GenerativeModel('gemini-pro')
+    # Intentamos con el modelo más reciente y compatible
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+    except:
+        model = genai.GenerativeModel('gemini-pro')
 else:
     st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets.")
     st.stop()
@@ -132,13 +135,14 @@ if semana_id not in st.session_state['historial_entrenamientos']:
                         **FUERZA/MOVILIDAD**: (ejercicios)
                         **NUTRICIÓN**: (consejos)"""
                         try:
+                            # Llamada limpia sin especificar versión v1beta para evitar el 404
                             response = model.generate_content(prompt)
                             if response and response.text:
                                 st.session_state['historial_entrenamientos'][semana_id] = response.text
                                 guardar_datos()
                                 st.rerun()
                         except Exception as e:
-                            st.error(f"Error de conexión: {str(e)}. Por favor, intenta de nuevo.")
+                            st.error(f"Error de conexión: {str(e)}. Intenta de nuevo.")
     st.stop()
 
 # --- 7. DASHBOARD PRINCIPAL ---
