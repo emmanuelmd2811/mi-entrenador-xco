@@ -1,204 +1,88 @@
 import streamlit as st
 import google.generativeai as genai
 import datetime
-import re
 import json
 import os
-import unicodedata
 
-# --- 1. CONFIGURACIÓN Y ESTILO ---
-st.set_page_config(page_title="Elite Adaptive Coach Pro", layout="wide", page_icon="🏆")
+# --- 1. CONFIGURACIÓN ---
+st.set_page_config(page_title="Elite Coach", layout="wide")
+CONFIG_FILE = "datos_entrenamiento.json"
 
-CONFIG_FILE = "user_data.json"
-
-st.markdown("""
-    <style>
-    .stApp { background-color: #1C1E23; }
-    .stMarkdown, p, span { color: #D1D5DB !important; }
-    h1, h2, h3 { color: #10B981 !important; }
-    div.stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: #2D3139; padding: 8px; border-radius: 12px; }
-    div.stTabs [data-baseweb="tab"] { background-color: #374151; border-radius: 8px; color: #9CA3AF !important; padding: 8px 16px; }
-    div.stTabs [aria-selected="true"] { background-color: #10B981 !important; color: white !important; font-weight: bold; border: 2px solid #34D399; }
-    div[data-testid="stVerticalBlock"] > div.element-container div.stMarkdown div.stContainer {
-        border: 1px solid #4B5563; border-radius: 15px; background-color: #262B33; padding: 18px; margin-bottom: 12px;
-    }
-    [data-testid="stSidebar"] { background-color: #111827; border-right: 1px solid #374151; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 2. FUNCIONES DE APOYO ---
-def normalizar(texto):
-    if not texto: return ""
-    return ''.join(c for c in unicodedata.normalize('NFD', str(texto))
-                  if unicodedata.category(c) != 'Mn').upper().strip()
-
+# --- 2. PERSISTENCIA (Lo que me pediste para no rellenar todo) ---
 def guardar_datos():
-    datos = {
-        'deporte': st.session_state.get('deporte'),
-        'modalidad': st.session_state.get('modalidad'),
-        'nombre_carrera': st.session_state.get('nombre_carrera'),
-        'fecha_carrera': str(st.session_state.get('fecha_carrera')),
-        'nivel': st.session_state.get('nivel'),
-        'dias_w': st.session_state.get('dias_w'),
-        'configurado': st.session_state.get('configurado'),
-        'historial_entrenamientos': st.session_state.get('historial_entrenamientos', {})
-    }
+    # Preparamos los datos para guardar (convertimos la fecha a texto)
+    datos = dict(st.session_state)
+    if 'fecha_carrera' in datos:
+        datos['fecha_carrera'] = str(datos['fecha_carrera'])
+    # Quitamos el objeto del modelo porque no se puede guardar en JSON
+    datos.pop('model_ai', None)
     with open(CONFIG_FILE, "w") as f:
         json.dump(datos, f)
 
 def cargar_datos():
     if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                d = json.load(f)
-                if d.get('fecha_carrera'):
-                    d['fecha_carrera'] = datetime.date.fromisoformat(d['fecha_carrera'])
-                return d
-        except: return None
+        with open(CONFIG_FILE, "r") as f:
+            d = json.load(f)
+            if d.get('fecha_carrera'):
+                d['fecha_carrera'] = datetime.date.fromisoformat(d['fecha_carrera'])
+            return d
     return None
 
-# --- 3. CONEXIÓN IA (SOLUCIÓN DEFINITIVA AL ERROR 404) ---
+# --- 3. CONEXIÓN IA (Regresando a la forma simple que funcionaba) ---
 if "GOOGLE_API_KEY" in st.secrets:
-    # Configuramos la API Key
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    
-    # Lista de nombres de modelos a probar (sin el prefijo 'models/')
-    modelos_a_probar = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
-    
-    model = None
-    for m_name in modelos_a_probar:
-        try:
-            # Intentamos instanciar el modelo directamente
-            model = genai.GenerativeModel(model_name=m_name)
-            # No hacemos llamada de prueba aquí para no gastar cuota, 
-            # solo verificamos que la instancia se cree.
-            break
-        except Exception:
-            continue
-            
-    if model is None:
-        st.error("❌ No se pudo inicializar ningún modelo. Verifica tu conexión e historial de cobro en Google Cloud.")
-        st.stop()
+    # USAMOS EL NOMBRE DIRECTO (SIN "models/")
+    model_ai = genai.GenerativeModel('gemini-1.5-flash')
 else:
-    st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets.")
+    st.error("Configura la API KEY")
     st.stop()
 
-# --- 4. LÓGICA DE TIEMPO ---
-hoy = datetime.date.today()
-dias_semana_es = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"]
-indice_hoy = hoy.weekday() 
-dia_actual_nombre = dias_semana_es[indice_hoy]
-semana_id = f"{hoy.year}-W{hoy.isocalendar()[1]}"
-
+# --- 4. INICIALIZACIÓN DE SESIÓN ---
 if 'configurado' not in st.session_state:
-    persistido = cargar_datos()
-    if persistido:
-        st.session_state.update(persistido)
+    datos_viejos = cargar_datos()
+    if datos_viejos:
+        st.session_state.update(datos_viejos)
     else:
-        st.session_state['configurado'] = False
-        st.session_state['historial_entrenamientos'] = {}
+        st.session_state.update({'configurado': False, 'historial': {}})
 
-# --- 5. ONBOARDING ---
+# --- 5. INTERFAZ: REGISTRO ---
 if not st.session_state['configurado']:
-    st.title("🎯 Perfil de Atleta")
-    with st.container(border=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            dep_sel = st.selectbox("Deporte", ["Ciclismo", "Running", "Trail Running", "Triatlón"])
-            mods = {"Ciclismo": ["XCO", "XCM", "Ruta", "Gravel"], 
-                    "Running": ["5K", "10K", "21K", "42K"],
-                    "Trail Running": ["Short", "Medium", "Ultra"],
-                    "Triatlón": ["Sprint", "Olímpico", "70.3", "140.6"]}
-            mod_sel = st.selectbox("Especialidad", mods.get(dep_sel, ["General"]))
-            nom_evento = st.text_input("Meta", "Mi Competencia")
-        with c2:
-            fec_c = st.date_input("Fecha", hoy + datetime.timedelta(days=60))
-            niv = st.select_slider("Nivel", options=["Principiante", "Intermedio", "Avanzado", "Elite"])
-            dias = st.slider("Días/semana", 1, 7, 5)
-        
-        if st.button("🚀 Crear mi Plan Maestro"):
-            st.session_state.update({
-                'deporte': dep_sel, 'modalidad': mod_sel, 'nombre_carrera': nom_evento,
-                'fecha_carrera': fec_c, 'nivel': niv, 'dias_w': dias, 
-                'configurado': True, 'historial_entrenamientos': {}
-            })
-            guardar_datos()
+    st.title("🎯 Configura tu Plan")
+    with st.form("registro"):
+        dep = st.selectbox("Deporte", ["Ciclismo", "Running"])
+        meta = st.text_input("Nombre de la meta")
+        fec = st.date_input("Fecha evento")
+        if st.form_submit_button("Crear mi Plan"):
+            st.session_state.update({'deporte': dep, 'nombre_meta': meta, 'fecha_carrera': fec, 'configurado': True})
+            guardar_datos() # <--- GUARDAMOS PARA QUE NO SE PIERDA
             st.rerun()
     st.stop()
 
-# --- 6. AJUSTE SEMANAL ---
-if semana_id not in st.session_state['historial_entrenamientos']:
-    st.title(f"📅 Ajuste de Semana ({dia_actual_nombre})")
-    with st.container(border=True):
-        with st.form("ajuste_semanal"):
-            resumen = st.text_area("¿Cómo vas esta semana?")
-            fatiga = st.slider("Fatiga (1-10)", 1, 10, 5)
-            if st.form_submit_button("Generar Plan"):
-                if not resumen:
-                    st.warning("Escribe algo breve.")
-                else:
-                    with st.spinner("Conectando con el Coach..."):
-                        prompt = f"Planifica de {dia_actual_nombre} a domingo para {st.session_state['deporte']}. Feedback: {resumen}. Formato: [DIA] con secciones **ENTRENAMIENTO PRINCIPAL**, **FUERZA/MOVILIDAD**, **NUTRICIÓN**."
-                        try:
-                            # Intentamos la generación
-                            response = model.generate_content(prompt)
-                            if response and response.text:
-                                st.session_state['historial_entrenamientos'][semana_id] = response.text
-                                guardar_datos()
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"Error de conexión: {str(e)}")
+# --- 6. GENERACIÓN SEMANAL ---
+hoy = datetime.date.today()
+semana_id = f"{hoy.year}-W{hoy.isocalendar()[1]}"
+
+if semana_id not in st.session_state['historial']:
+    st.title("📅 Tu semana")
+    with st.form("generar"):
+        feedback = st.text_area("¿Cómo te sientes hoy?")
+        if st.form_submit_button("Generar Plan"):
+            prompt = f"Soy coach. Crea plan para {st.session_state['deporte']} hasta el domingo. Feedback: {feedback}. Formato: [DIA] con detalles."
+            res = model_ai.generate_content(prompt)
+            st.session_state['historial'][semana_id] = res.text
+            guardar_datos() # <--- GUARDAMOS EL PLAN GENERADO
+            st.rerun()
     st.stop()
 
 # --- 7. DASHBOARD ---
-st.title(f"🏆 {st.session_state.get('modalidad')} - {st.session_state.get('nombre_carrera')}")
-with st.sidebar:
-    st.metric("Días para la meta", (st.session_state.get('fecha_carrera', hoy) - hoy).days)
-    if st.button("🔄 Re-ajustar semana"):
-        if semana_id in st.session_state['historial_entrenamientos']:
-            del st.session_state['historial_entrenamientos'][semana_id]
-            guardar_datos()
-            st.rerun()
-    if st.button("🗑️ Reset Todo"):
-        if os.path.exists(CONFIG_FILE): os.remove(CONFIG_FILE)
-        st.session_state.clear()
-        st.rerun()
+st.title(f"🏆 {st.session_state['nombre_meta']}")
+st.write(f"Deporte: {st.session_state['deporte']}")
 
-# --- 8. VISUALIZACIÓN ---
-plan_actual = st.session_state['historial_entrenamientos'].get(semana_id, "")
-dias_visibles = dias_semana_es[indice_hoy:] 
-tabs = st.tabs([f"🟢 {d}" if d == dia_actual_nombre else d for d in dias_visibles])
+if st.sidebar.button("🗑️ Reset (Borrar todo)"):
+    if os.path.exists(CONFIG_FILE): os.remove(CONFIG_FILE)
+    st.session_state.clear()
+    st.rerun()
 
-def extraer_dia_blindado(dia_target, texto):
-    if not texto: return ""
-    texto_norm = normalizar(texto)
-    dia_norm = normalizar(dia_target)
-    tags = [f"[{dia_norm}]", f"**{dia_norm}**", f"{dia_norm}:"]
-    inicio = -1
-    for t in tags:
-        inicio = texto_norm.find(t)
-        if inicio != -1:
-            inicio += len(t)
-            break
-    if inicio == -1: return "Día de recuperación o no planificado."
-    fin = len(texto_norm)
-    for d in dias_semana_es:
-        dn = normalizar(d)
-        for t in [f"[{dn}]", f"**{dn}**"]:
-            p = texto_norm.find(t, inicio)
-            if p != -1 and p < fin: fin = p
-    return texto[inicio:fin].strip()
-
-for i, nombre_dia in enumerate(dias_visibles):
-    with tabs[i]:
-        contenido = extraer_dia_blindado(nombre_dia, plan_actual)
-        secciones = re.split(r'(\*\*.*?\*\*)', contenido)
-        if len(secciones) > 1:
-            for j in range(1, len(secciones), 2):
-                tit = secciones[j].replace("*", "").strip()
-                val = secciones[j+1].strip() if j+1 < len(secciones) else ""
-                if val:
-                    with st.container(border=True):
-                        st.markdown(f"#### {tit}")
-                        st.write(val)
-        else: st.info(contenido)
+# Mostrar el plan
+plan = st.session_state['historial'][semana_id]
+st.markdown(plan)
