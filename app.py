@@ -57,10 +57,11 @@ def cargar_datos():
         except: return None
     return None
 
-# --- 3. CONEXIÓN IA ---
+# --- 3. CONEXIÓN IA (Modelo Actualizado para evitar Error 404) ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Cambiamos a 'gemini-pro' para máxima compatibilidad
+    model = genai.GenerativeModel('gemini-pro')
 else:
     st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets.")
     st.stop()
@@ -108,13 +109,13 @@ if not st.session_state['configurado']:
             st.rerun()
     st.stop()
 
-# --- 6. AJUSTE SEMANAL (REFORZADO) ---
+# --- 6. AJUSTE SEMANAL ---
 if semana_id not in st.session_state['historial_entrenamientos']:
     st.title(f"📅 Ajuste de Semana ({dia_actual_nombre})")
     with st.container(border=True):
         st.write(f"Es **{dia_actual_nombre}**. Cuéntame tu progreso para cerrar la semana:")
         with st.form("ajuste_semanal"):
-            resumen = st.text_area("¿Cómo entrenaste de lunes a ayer?", placeholder="Ej: Cumplí todo / Salté el martes por trabajo...")
+            resumen = st.text_area("¿Cómo entrenaste de lunes a ayer?", placeholder="Ej: Cumplí todo / Salté el miércoles...")
             fatiga = st.slider("Fatiga acumulada (1-10)", 1, 10, 5)
             
             if st.form_submit_button("Generar Plan Adaptado"):
@@ -122,14 +123,14 @@ if semana_id not in st.session_state['historial_entrenamientos']:
                     st.warning("Escribe un breve resumen para que el Coach pueda ayudarte mejor.")
                 else:
                     with st.spinner("Consultando al Coach..."):
-                        prompt = f"""Como Coach experto en {st.session_state['deporte']} ({st.session_state['modalidad']}),
-                        genera un plan desde hoy {dia_actual_nombre} hasta el domingo.
-                        Feedback del atleta: {resumen}. Fatiga: {fatiga}/10. Nivel: {st.session_state['nivel']}.
-                        Usa este formato OBLIGATORIO para cada día:
+                        prompt = f"""Actúa como un Coach experto en {st.session_state['deporte']} ({st.session_state['modalidad']}).
+                        Planifica los días restantes (de hoy {dia_actual_nombre} a domingo).
+                        Feedback: {resumen}. Fatiga: {fatiga}/10. Nivel: {st.session_state['nivel']}.
+                        Formato requerido para cada día:
                         [NOMBRE_DIA]
-                        **ENTRENAMIENTO PRINCIPAL**: (Descripción detallada)
-                        **FUERZA/MOVILIDAD**: (Ejercicios)
-                        **NUTRICIÓN**: (Consejos)"""
+                        **ENTRENAMIENTO PRINCIPAL**: (detalles)
+                        **FUERZA/MOVILIDAD**: (ejercicios)
+                        **NUTRICIÓN**: (consejos)"""
                         try:
                             response = model.generate_content(prompt)
                             if response and response.text:
@@ -137,14 +138,14 @@ if semana_id not in st.session_state['historial_entrenamientos']:
                                 guardar_datos()
                                 st.rerun()
                         except Exception as e:
-                            st.error(f"Error de conexión: {str(e)[:100]}. Por favor, intenta de nuevo.")
+                            st.error(f"Error de conexión: {str(e)}. Por favor, intenta de nuevo.")
     st.stop()
 
 # --- 7. DASHBOARD PRINCIPAL ---
 st.title(f"🏆 {st.session_state['modalidad']} - {st.session_state['nombre_carrera']}")
 with st.sidebar:
     st.info(f"**Deporte:** {st.session_state['deporte']}")
-    st.metric("Días para la meta", (st.session_state['fecha_carrera'] - hoy).days)
+    st.metric("Días para la meta", (st.session_state.get('fecha_carrera', hoy) - hoy).days)
     st.divider()
     if st.button("🔄 Re-ajustar esta semana"):
         if semana_id in st.session_state['historial_entrenamientos']:
@@ -156,7 +157,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# --- 8. VISUALIZACIÓN FILTRADA (De hoy a domingo) ---
+# --- 8. VISUALIZACIÓN FILTRADA ---
 plan_actual = st.session_state['historial_entrenamientos'].get(semana_id, "")
 dias_visibles = dias_semana_es[indice_hoy:] 
 tabs = st.tabs([f"🟢 {d}" if d == dia_actual_nombre else d for d in dias_visibles])
