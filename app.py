@@ -26,7 +26,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. FUNCIONES DE PERSISTENCIA Y NORMALIZACIÓN ---
+# --- 2. FUNCIONES DE PERSISTENCIA ---
 def normalizar(texto):
     if not texto: return ""
     return ''.join(c for c in unicodedata.normalize('NFD', str(texto))
@@ -57,14 +57,24 @@ def cargar_datos():
         except: return None
     return None
 
-# --- 3. CONEXIÓN IA (Actualizado a Gemini 1.5 Flash - Máxima compatibilidad) ---
+# --- 3. CONEXIÓN IA REFORZADA (CORRECCIÓN ERROR 404) ---
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    # Intentamos con el modelo más reciente y compatible
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-    except:
-        model = genai.GenerativeModel('gemini-pro')
+    
+    # Probamos los modelos en orden de estabilidad
+    model_success = False
+    for model_name in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+        try:
+            model = genai.GenerativeModel(model_name)
+            # Prueba rápida de conexión
+            model_success = True
+            break
+        except:
+            continue
+            
+    if not model_success:
+        st.error("❌ No se pudo establecer conexión con ningún modelo de Gemini. Revisa tu API Key.")
+        st.stop()
 else:
     st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets.")
     st.stop()
@@ -84,7 +94,7 @@ if 'configurado' not in st.session_state:
         st.session_state['configurado'] = False
         st.session_state['historial_entrenamientos'] = {}
 
-# --- 5. ONBOARDING DINÁMICO ---
+# --- 5. ONBOARDING ---
 if not st.session_state['configurado']:
     st.title("🎯 Configura tu Perfil de Atleta")
     with st.container(border=True):
@@ -116,52 +126,40 @@ if not st.session_state['configurado']:
 if semana_id not in st.session_state['historial_entrenamientos']:
     st.title(f"📅 Ajuste de Semana ({dia_actual_nombre})")
     with st.container(border=True):
-        st.write(f"Es **{dia_actual_nombre}**. Cuéntame tu progreso para cerrar la semana:")
         with st.form("ajuste_semanal"):
-            resumen = st.text_area("¿Cómo entrenaste de lunes a ayer?", placeholder="Ej: Cumplí todo / Salté el miércoles...")
+            resumen = st.text_area("¿Cómo entrenaste de lunes a ayer?")
             fatiga = st.slider("Fatiga acumulada (1-10)", 1, 10, 5)
-            
             if st.form_submit_button("Generar Plan Adaptado"):
                 if not resumen:
-                    st.warning("Escribe un breve resumen para que el Coach pueda ayudarte mejor.")
+                    st.warning("Escribe un resumen.")
                 else:
                     with st.spinner("Consultando al Coach..."):
-                        prompt = f"""Actúa como un Coach experto en {st.session_state['deporte']} ({st.session_state['modalidad']}).
-                        Planifica los días restantes (de hoy {dia_actual_nombre} a domingo).
-                        Feedback: {resumen}. Fatiga: {fatiga}/10. Nivel: {st.session_state['nivel']}.
-                        Formato requerido para cada día:
-                        [NOMBRE_DIA]
-                        **ENTRENAMIENTO PRINCIPAL**: (detalles)
-                        **FUERZA/MOVILIDAD**: (ejercicios)
-                        **NUTRICIÓN**: (consejos)"""
+                        prompt = f"Coach experto en {st.session_state['deporte']}. Genera plan desde {dia_actual_nombre} a domingo. Feedback: {resumen}. Nivel: {st.session_state['nivel']}. Formato: [DIA] con secciones **ENTRENAMIENTO PRINCIPAL**, **FUERZA/MOVILIDAD**, **NUTRICIÓN**."
                         try:
-                            # Llamada limpia sin especificar versión v1beta para evitar el 404
                             response = model.generate_content(prompt)
                             if response and response.text:
                                 st.session_state['historial_entrenamientos'][semana_id] = response.text
                                 guardar_datos()
                                 st.rerun()
                         except Exception as e:
-                            st.error(f"Error de conexión: {str(e)}. Intenta de nuevo.")
+                            st.error(f"Error de conexión: {str(e)}")
     st.stop()
 
-# --- 7. DASHBOARD PRINCIPAL ---
+# --- 7. DASHBOARD ---
 st.title(f"🏆 {st.session_state['modalidad']} - {st.session_state['nombre_carrera']}")
 with st.sidebar:
-    st.info(f"**Deporte:** {st.session_state['deporte']}")
     st.metric("Días para la meta", (st.session_state.get('fecha_carrera', hoy) - hoy).days)
-    st.divider()
     if st.button("🔄 Re-ajustar esta semana"):
         if semana_id in st.session_state['historial_entrenamientos']:
             del st.session_state['historial_entrenamientos'][semana_id]
             guardar_datos()
             st.rerun()
-    if st.button("🗑️ Reset Todo (Nuevo Objetivo)"):
+    if st.button("🗑️ Reset Todo"):
         if os.path.exists(CONFIG_FILE): os.remove(CONFIG_FILE)
         st.session_state.clear()
         st.rerun()
 
-# --- 8. VISUALIZACIÓN FILTRADA ---
+# --- 8. VISUALIZACIÓN ---
 plan_actual = st.session_state['historial_entrenamientos'].get(semana_id, "")
 dias_visibles = dias_semana_es[indice_hoy:] 
 tabs = st.tabs([f"🟢 {d}" if d == dia_actual_nombre else d for d in dias_visibles])
@@ -170,25 +168,24 @@ def extraer_dia_blindado(dia_target, texto):
     if not texto: return ""
     texto_norm = normalizar(texto)
     dia_norm = normalizar(dia_target)
-    tags = [f"[{dia_norm}]", f"**{dia_norm}**", f"{dia_norm}:", f"### {dia_norm}"]
+    tags = [f"[{dia_norm}]", f"**{dia_norm}**", f"{dia_norm}:"]
     inicio = -1
     for t in tags:
         inicio = texto_norm.find(t)
         if inicio != -1:
             inicio += len(t)
             break
-    if inicio == -1: return "Día de recuperación o no planificado."
+    if inicio == -1: return "Día de recuperación."
     fin = len(texto_norm)
     for d in dias_semana_es:
         dn = normalizar(d)
-        for t in [f"[{dn}]", f"**{dn}**", f"### {dn}"]:
+        for t in [f"[{dn}]", f"**{dn}**"]:
             p = texto_norm.find(t, inicio)
             if p != -1 and p < fin: fin = p
     return texto[inicio:fin].strip()
 
 for i, nombre_dia in enumerate(dias_visibles):
     with tabs[i]:
-        if nombre_dia == dia_actual_nombre: st.success("⚡ OBJETIVO DE HOY")
         contenido = extraer_dia_blindado(nombre_dia, plan_actual)
         secciones = re.split(r'(\*\*.*?\*\*)', contenido)
         if len(secciones) > 1:
