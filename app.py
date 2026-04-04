@@ -9,7 +9,7 @@ if "GOOGLE_API_KEY" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
         # Intentamos usar el modelo pro que es el más estable
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('models/gemini-1.5-flash')
         # Prueba de conexión rápida
         test_response = model.generate_content("Hola") 
     except Exception as e:
