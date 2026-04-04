@@ -4,79 +4,78 @@ import datetime
 import re
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="XCO Elite Coach", layout="wide", page_icon="🚵‍♂️")
+st.set_page_config(page_title="XCO Weekly Coach", layout="wide")
 
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     model = genai.GenerativeModel('models/gemini-2.5-flash')
 else:
-    st.error("⚠️ Configura la API Key en Secrets.")
+    st.error("Configura la API Key.")
+
+# --- LÓGICA DE PERSISTENCIA SEMANAL ---
+# Obtenemos el número de la semana actual (ej. semana 14 del 2026)
+semana_actual = datetime.datetime.now().isocalendar()[1]
+año_actual = datetime.datetime.now().year
+id_semana = f"{año_actual}-{semana_actual}"
+
+# Si la semana cambió o no existe plan, inicializamos
+if 'id_semana_guardada' not in st.session_state or st.session_state['id_semana_guardada'] != id_semana:
+    st.session_state['plan_semanal'] = None
+    st.session_state['id_semana_guardada'] = id_semana
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("🎯 Objetivo")
-    evento = st.text_input("Carrera", "Campeonato Estatal")
-    fecha_carrera = st.date_input("Fecha", datetime.date(2026, 4, 19))
-    st.header("🔋 Mi Estado")
+    fecha_carrera = st.date_input("Fecha Carrera", datetime.date(2026, 4, 19))
     nivel = st.select_slider("Nivel", options=["Amateur", "Intermedio", "Elite"])
-    fatiga = st.slider("Fatiga (1-10)", 1, 10, 3)
     st.markdown("---")
-    dias = (fecha_carrera - datetime.date.today()).days
-    st.metric("Días restantes", dias)
+    if st.button("🔄 Generar Nueva Planificación Semanal"):
+        st.session_state['plan_semanal'] = None # Forzar regeneración
 
-st.title(f"🏆 Planificación: {evento}")
-
-# --- BOTÓN DE GENERACIÓN ---
-if st.button("🔄 Generar / Actualizar Entrenamiento de Hoy"):
-    with st.spinner("El Coach está diseñando tu día..."):
+# --- GENERACIÓN CON IA ---
+if st.session_state['plan_semanal'] is None:
+    with st.spinner("Generando microciclo semanal..."):
+        dias_meta = (fecha_carrera - datetime.date.today()).days
         prompt = f"""
-        Eres un coach de XCO. Genera el plan para un atleta {nivel} con carrera en {dias} días y fatiga {fatiga}/10.
-        
-        Debes separar la respuesta EXACTAMENTE con estas etiquetas para que mi sistema las procese:
-        [BICI] aquí el entrenamiento de ciclismo de 1h con intervalos o técnica.
-        [GYM] aquí la rutina de fuerza y core específica.
-        [NUTRICION] qué comer antes, durante y después hoy.
+        Eres un coach de XCO. Genera un entrenamiento SEMANAL COMPLETO (Lunes a Domingo).
+        Atleta nivel {nivel}, faltan {dias_meta} días para la carrera.
+        Usa este formato estricto para cada día:
+        [LUNES] ... [MARTES] ... [MIERCOLES] ... [JUEVES] ... [VIERNES] ... [SABADO] ... [DOMINGO]
+        Dentro de cada día incluye: BICI, GYM/CORE y NUTRICIÓN breve.
         """
-        try:
-            response = model.generate_content(prompt).text
-            # Guardamos en sesión para que no se borre al cambiar de pestaña
-            st.session_state['plan_completo'] = response
-        except Exception as e:
-            st.error(f"Error: {e}")
+        response = model.generate_content(prompt).text
+        st.session_state['plan_semanal'] = response
 
-# --- LÓGICA DE SEPARACIÓN DE CONTENIDO ---
-plan = st.session_state.get('plan_completo', "")
+# --- EXTRACCIÓN DE DATOS ---
+def extraer_dia(dia_nombre, texto):
+    pattern = f"\[{dia_nombre}\](.*?)(?=\[|$)"
+    res = re.findall(pattern, texto, re.DOTALL)
+    return res[0].strip() if res else "Día no generado."
 
-# Función para extraer secciones usando etiquetas
-def extraer_seccion(tag, texto):
-    pattern = f"\[{tag}\](.*?)(?=\[|$)"
-    resultado = re.findall(pattern, texto, re.DOTALL)
-    return resultado[0].strip() if resultado else "Haz clic en el botón para generar."
+# --- INTERFAZ DE USUARIO ---
+st.title(f"📅 Plan Semanal (Semana {semana_actual})")
+st.info(f"Preparación para el {fecha_carrera}. Los entrenos se mantienen fijos toda la semana.")
 
-# --- DISEÑO DE PESTAÑAS (TABS) ---
-tab_bici, tab_gym, tab_nutri, tab_check = st.tabs(["🚲 Ciclismo", "🏋️ Fuerza & Core", "🍎 Nutrición", "🛠️ Mecánica"])
+# Pestañas para los días de la semana
+dias_semana = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"]
+tabs = st.tabs(dias_semana)
 
-with tab_bici:
-    st.subheader("Planificación de Rodaje / Series")
-    contenido_bici = extraer_seccion("BICI", plan)
-    st.info(contenido_bici)
+for i, nombre_dia in enumerate(dias_semana):
+    with tabs[i]:
+        contenido = extraer_dia(nombre_dia, st.session_state['plan_semanal'])
+        
+        # Resaltar el día actual
+        dia_hoy_nombre = datetime.datetime.now().strftime("%A").upper()
+        # Traducción simple para match
+        traduccion = {"MONDAY":"LUNES", "TUESDAY":"MARTES", "WEDNESDAY":"MIERCOLES", 
+                      "THURSDAY":"JUEVES", "FRIDAY":"VIERNES", "SATURDAY":"SABADO", "SUNDAY":"DOMINGO"}
+        
+        if traduccion.get(dia_hoy_nombre) == nombre_dia:
+            st.subheader(f"🌟 HOY: {nombre_dia}")
+            st.markdown(f"**{contenido}**")
+        else:
+            st.subheader(nombre_dia)
+            st.write(contenido)
 
-with tab_gym:
-    st.subheader("Complemento de Fuerza")
-    contenido_gym = extraer_seccion("GYM", plan)
-    st.warning(contenido_gym)
-
-with tab_nutri:
-    st.subheader("Estrategia Alimentaria")
-    contenido_nutri = extraer_seccion("NUTRICION", plan)
-    st.success(contenido_nutri)
-
-with tab_check:
-    st.subheader("Checklist Pre-Salida")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.checkbox("Presión neumáticos (XCO: ~18-22 psi)")
-        st.checkbox("Carga de cambios electrónicos (si aplica)")
-    with c2:
-        st.checkbox("Suspensión (SAG correcto)")
-        st.checkbox("Herramienta y mechas listas")
+st.markdown("---")
+st.caption("Nota: El plan se guarda mientras la pestaña del navegador esté abierta. Para guardarlo permanentemente meses, el siguiente paso es conectar Google Sheets.")
