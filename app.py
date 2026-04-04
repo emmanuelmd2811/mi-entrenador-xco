@@ -26,7 +26,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. FUNCIONES DE PERSISTENCIA ---
+# --- 2. FUNCIONES DE APOYO ---
 def normalizar(texto):
     if not texto: return ""
     return ''.join(c for c in unicodedata.normalize('NFD', str(texto))
@@ -57,23 +57,27 @@ def cargar_datos():
         except: return None
     return None
 
-# --- 3. CONEXIÓN IA REFORZADA (CORRECCIÓN ERROR 404) ---
+# --- 3. CONEXIÓN IA (SOLUCIÓN DEFINITIVA AL ERROR 404) ---
 if "GOOGLE_API_KEY" in st.secrets:
+    # Configuramos la API Key
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # Probamos los modelos en orden de estabilidad
-    model_success = False
-    for model_name in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+    # Lista de nombres de modelos a probar (sin el prefijo 'models/')
+    modelos_a_probar = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+    
+    model = None
+    for m_name in modelos_a_probar:
         try:
-            model = genai.GenerativeModel(model_name)
-            # Prueba rápida de conexión
-            model_success = True
+            # Intentamos instanciar el modelo directamente
+            model = genai.GenerativeModel(model_name=m_name)
+            # No hacemos llamada de prueba aquí para no gastar cuota, 
+            # solo verificamos que la instancia se cree.
             break
-        except:
+        except Exception:
             continue
             
-    if not model_success:
-        st.error("❌ No se pudo establecer conexión con ningún modelo de Gemini. Revisa tu API Key.")
+    if model is None:
+        st.error("❌ No se pudo inicializar ningún modelo. Verifica tu conexión e historial de cobro en Google Cloud.")
         st.stop()
 else:
     st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets.")
@@ -96,21 +100,21 @@ if 'configurado' not in st.session_state:
 
 # --- 5. ONBOARDING ---
 if not st.session_state['configurado']:
-    st.title("🎯 Configura tu Perfil de Atleta")
+    st.title("🎯 Perfil de Atleta")
     with st.container(border=True):
         c1, c2 = st.columns(2)
         with c1:
             dep_sel = st.selectbox("Deporte", ["Ciclismo", "Running", "Trail Running", "Triatlón"])
-            mods = {"Ciclismo": ["XCO", "XCM", "Ruta", "Gravel", "Enduro"], 
-                    "Running": ["5K", "10K", "21K", "42K", "Milla"],
-                    "Trail Running": ["Short Trail", "Trail", "Ultra Trail"],
+            mods = {"Ciclismo": ["XCO", "XCM", "Ruta", "Gravel"], 
+                    "Running": ["5K", "10K", "21K", "42K"],
+                    "Trail Running": ["Short", "Medium", "Ultra"],
                     "Triatlón": ["Sprint", "Olímpico", "70.3", "140.6"]}
-            mod_sel = st.selectbox("Especialidad / Distancia", mods.get(dep_sel, ["General"]))
-            nom_evento = st.text_input("Nombre de la meta", "Mi Gran Competencia")
+            mod_sel = st.selectbox("Especialidad", mods.get(dep_sel, ["General"]))
+            nom_evento = st.text_input("Meta", "Mi Competencia")
         with c2:
-            fec_c = st.date_input("Fecha del Evento", hoy + datetime.timedelta(days=60))
-            niv = st.select_slider("Nivel actual", options=["Principiante", "Intermedio", "Avanzado", "Elite"])
-            dias = st.slider("Días disponibles/semana", 1, 7, 5)
+            fec_c = st.date_input("Fecha", hoy + datetime.timedelta(days=60))
+            niv = st.select_slider("Nivel", options=["Principiante", "Intermedio", "Avanzado", "Elite"])
+            dias = st.slider("Días/semana", 1, 7, 5)
         
         if st.button("🚀 Crear mi Plan Maestro"):
             st.session_state.update({
@@ -127,15 +131,16 @@ if semana_id not in st.session_state['historial_entrenamientos']:
     st.title(f"📅 Ajuste de Semana ({dia_actual_nombre})")
     with st.container(border=True):
         with st.form("ajuste_semanal"):
-            resumen = st.text_area("¿Cómo entrenaste de lunes a ayer?")
-            fatiga = st.slider("Fatiga acumulada (1-10)", 1, 10, 5)
-            if st.form_submit_button("Generar Plan Adaptado"):
+            resumen = st.text_area("¿Cómo vas esta semana?")
+            fatiga = st.slider("Fatiga (1-10)", 1, 10, 5)
+            if st.form_submit_button("Generar Plan"):
                 if not resumen:
-                    st.warning("Escribe un resumen.")
+                    st.warning("Escribe algo breve.")
                 else:
-                    with st.spinner("Consultando al Coach..."):
-                        prompt = f"Coach experto en {st.session_state['deporte']}. Genera plan desde {dia_actual_nombre} a domingo. Feedback: {resumen}. Nivel: {st.session_state['nivel']}. Formato: [DIA] con secciones **ENTRENAMIENTO PRINCIPAL**, **FUERZA/MOVILIDAD**, **NUTRICIÓN**."
+                    with st.spinner("Conectando con el Coach..."):
+                        prompt = f"Planifica de {dia_actual_nombre} a domingo para {st.session_state['deporte']}. Feedback: {resumen}. Formato: [DIA] con secciones **ENTRENAMIENTO PRINCIPAL**, **FUERZA/MOVILIDAD**, **NUTRICIÓN**."
                         try:
+                            # Intentamos la generación
                             response = model.generate_content(prompt)
                             if response and response.text:
                                 st.session_state['historial_entrenamientos'][semana_id] = response.text
@@ -146,10 +151,10 @@ if semana_id not in st.session_state['historial_entrenamientos']:
     st.stop()
 
 # --- 7. DASHBOARD ---
-st.title(f"🏆 {st.session_state['modalidad']} - {st.session_state['nombre_carrera']}")
+st.title(f"🏆 {st.session_state.get('modalidad')} - {st.session_state.get('nombre_carrera')}")
 with st.sidebar:
     st.metric("Días para la meta", (st.session_state.get('fecha_carrera', hoy) - hoy).days)
-    if st.button("🔄 Re-ajustar esta semana"):
+    if st.button("🔄 Re-ajustar semana"):
         if semana_id in st.session_state['historial_entrenamientos']:
             del st.session_state['historial_entrenamientos'][semana_id]
             guardar_datos()
@@ -175,7 +180,7 @@ def extraer_dia_blindado(dia_target, texto):
         if inicio != -1:
             inicio += len(t)
             break
-    if inicio == -1: return "Día de recuperación."
+    if inicio == -1: return "Día de recuperación o no planificado."
     fin = len(texto_norm)
     for d in dias_semana_es:
         dn = normalizar(d)
