@@ -4,13 +4,13 @@ import datetime
 import re
 
 # --- 1. CONFIGURACIÓN Y ESTILO ---
-st.set_page_config(page_title="XCO Adaptive Coach Pro", layout="wide", page_icon="🚵‍♂️")
+st.set_page_config(page_title="Multi-Sport Adaptive Coach", layout="wide", page_icon="🏆")
 
 st.markdown("""
     <style>
     .stApp { background-color: #1C1E23; }
     .stMarkdown, p, span { color: #D1D5DB !important; }
-    h1, h2, h3 { color: #E5E7EB !important; font-family: 'Inter', sans-serif; }
+    h1, h2, h3 { color: #10B981 !important; font-family: 'Inter', sans-serif; }
     div.stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: #2D3139; padding: 8px; border-radius: 12px; }
     div.stTabs [data-baseweb="tab"] { background-color: #374151; border-radius: 8px; color: #9CA3AF !important; padding: 8px 16px; }
     div.stTabs [aria-selected="true"] { background-color: #10B981 !important; color: white !important; font-weight: bold; }
@@ -29,7 +29,7 @@ else:
     st.error("⚠️ Configura 'GOOGLE_API_KEY' en los Secrets.")
     st.stop()
 
-# --- 3. LÓGICA DE ESTADO Y TIEMPO ---
+# --- 3. LÓGICA DE ESTADO ---
 hoy = datetime.date.today()
 nombre_dia_hoy = hoy.strftime("%A").upper()
 traduccion_dias = {"MONDAY":"LUNES", "TUESDAY":"MARTES", "WEDNESDAY":"MIERCOLES", 
@@ -42,23 +42,37 @@ if 'configurado' not in st.session_state:
 if 'historial_entrenamientos' not in st.session_state:
     st.session_state['historial_entrenamientos'] = {}
 
-# --- 4. PASO 1: CONFIGURACIÓN DEL OBJETIVO (OBLIGATORIO) ---
+# --- 4. CONFIGURACIÓN MULTIDEPORTE (ONBOARDING) ---
 if not st.session_state['configurado']:
-    st.title("🎯 Configuración de Temporada XCO")
-    st.info("Antes de ver tu entrenamiento, necesito conocer tus objetivos.")
+    st.title("🎯 Tu Nuevo Plan de Entrenamiento")
+    st.info("Configura tu deporte y objetivo para empezar.")
+    
     with st.container(border=True):
-        with st.form("onboarding"):
+        with st.form("onboarding_multisport"):
             c1, c2 = st.columns(2)
             with c1:
-                nombre_c = st.text_input("¿Cómo se llama tu carrera objetivo?", "Copa Nacional")
-                fecha_c = st.date_input("¿Qué día es la carrera?", hoy + datetime.timedelta(days=45))
-            with c2:
-                nivel = st.selectbox("Tu Nivel Actual", ["Principiante", "Intermedio", "Avanzado", "Elite"])
-                dias_w = st.slider("Días disponibles para entrenar/semana", 1, 7, 5)
+                deporte = st.selectbox("Deporte Principal", ["Ciclismo", "Running", "Trail Running", "Triatlón"])
+                
+                # Sub-modalidades dinámicas
+                if deporte == "Ciclismo":
+                    modalidad = st.selectbox("Modalidad", ["XCO (Cross Country)", "XCM (Maratón)", "Ruta", "Enduro", "Gravel"])
+                elif deporte == "Running":
+                    modalidad = st.selectbox("Distancia", ["5K", "10K", "21K (Medio Maratón)", "42K (Maratón)"])
+                else:
+                    modalidad = st.text_input("Tipo de evento", "General")
+                
+                nombre_evento = st.text_input("Nombre de la competencia", "Mi Gran Reto")
             
-            if st.form_submit_button("🔥 Establecer Objetivo"):
+            with c2:
+                fecha_c = st.date_input("Fecha del Evento", hoy + datetime.timedelta(days=60))
+                nivel = st.select_slider("Tu Nivel", options=["Principiante", "Intermedio", "Avanzado", "Elite"])
+                dias_w = st.slider("Días disponibles a la semana", 1, 7, 5)
+            
+            if st.form_submit_button("🔥 Generar Plan de Alto Rendimiento"):
                 st.session_state.update({
-                    'nombre_carrera': nombre_c,
+                    'deporte': deporte,
+                    'modalidad': modalidad,
+                    'nombre_carrera': nombre_evento,
                     'fecha_carrera': fecha_c,
                     'nivel': nivel,
                     'dias_w': dias_w,
@@ -67,83 +81,87 @@ if not st.session_state['configurado']:
                 st.rerun()
     st.stop()
 
-# --- 5. PASO 2: AJUSTE SEMANAL (Detección de Sábado/Media semana) ---
+# --- 5. AJUSTE SEMANAL (INTELIGENCIA ADAPTATIVA) ---
 if semana_id not in st.session_state['historial_entrenamientos']:
     st.title(f"📅 Ajuste de Semana ({dia_actual_es})")
     
-    if dia_actual_es == "LUNES":
-        # Generación automática de lunes
-        with st.spinner("Iniciando semana completa..."):
-            prompt = f"Coach XCO. Genera plan LUNES a DOMINGO. Atleta {st.session_state['nivel']}, meta {st.session_state['nombre_carrera']} en {st.session_state['fecha_carrera']}. Formato [LUNES]... con **BICICLETA**, **GYM/CORE**, **NUTRICIÓN**."
-            res = model.generate_content(prompt)
-            st.session_state['historial_entrenamientos'][semana_id] = res.text
-            st.rerun()
-    else:
-        # Si es Sábado u otro día, pedimos feedback
-        with st.container(border=True):
-            st.subheader(f"👋 Es {dia_actual_es}. Cuéntame cómo te fue esta semana:")
-            with st.form("ajuste_semanal"):
-                resumen = st.text_area("¿Cómo entrenaste de lunes a ayer?", placeholder="Ej: Cumplí todo, o el miércoles no pude salir...")
-                fatiga = st.slider("Nivel de fatiga actual (1-10)", 1, 10, 5)
+    with st.container(border=True):
+        st.subheader(f"👋 ¡Hola! Es {dia_actual_es}. Cuéntame cómo vas:")
+        with st.form("ajuste_semanal"):
+            resumen = st.text_area("Resumen de tus entrenos previos (si aplica):", placeholder="Ej: He entrenado bien, o estuve enfermo lunes y martes...")
+            fatiga = st.slider("Fatiga acumulada (1-10)", 1, 10, 4)
+            
+            if st.form_submit_button("Generar Plan Adaptado"):
+                prompt = f"""
+                Actúa como un Coach de {st.session_state['deporte']} especializado en {st.session_state['modalidad']}.
+                OBJETIVO: {st.session_state['nombre_carrera']} el {st.session_state['fecha_carrera']}.
+                ATLETA: Nivel {st.session_state['nivel']}, entrena {st.session_state['dias_w']} días/semana.
+                SITUACIÓN ACTUAL: Hoy es {dia_actual_es}. El atleta reporta: '{resumen}'. Fatiga: {fatiga}/10.
                 
-                if st.form_submit_button("Generar Plan para el resto de la semana"):
-                    prompt = f"""
-                    Coach XCO. Hoy es {dia_actual_es}. Atleta {st.session_state['nivel']}. 
-                    Feedback semana: '{resumen}', Fatiga: {fatiga}/10. 
-                    Carrera: {st.session_state['nombre_carrera']} el {st.session_state['fecha_carrera']}.
-                    Genera el plan desde HOY {dia_actual_es} hasta el DOMINGO.
-                    Formato obligatorio: [{dia_actual_es}], [SIGUIENTE DÍA]... 
-                    Incluye secciones **BICICLETA**, **GYM/CORE**, **NUTRICIÓN**.
-                    """
-                    res = model.generate_content(prompt)
-                    st.session_state['historial_entrenamientos'][semana_id] = res.text
-                    st.rerun()
-        st.stop()
+                TAREA: Genera el plan desde HOY {dia_actual_es} hasta el DOMINGO.
+                FORMATO: [DIA_NOMBRE]
+                Secciones internas: **ENTRENAMIENTO PRINCIPAL**, **FUERZA/MOVILIDAD**, **NUTRICIÓN**.
+                (Adapta el lenguaje al deporte: si es running habla de ritmos, si es bici de potencia/cadencia).
+                """
+                res = model.generate_content(prompt)
+                st.session_state['historial_entrenamientos'][semana_id] = res.text
+                st.rerun()
+    st.stop()
 
 # --- 6. DASHBOARD PRINCIPAL ---
-st.title(f"🚵‍♂️ Plan Semanal: {st.session_state['nombre_carrera']}")
+st.title(f"🏆 Coach: {st.session_state['nombre_carrera']}")
 
-# Sidebar: Historial y Control
 with st.sidebar:
-    st.header("📊 Mi Estado")
-    semanas_log = list(st.session_state['historial_entrenamientos'].keys())
-    sem_sel = st.selectbox("Ver Semana:", semanas_log, index=len(semanas_log)-1)
+    st.header("📊 Perfil")
+    st.info(f"**{st.session_state['deporte']}** - {st.session_state['modalidad']}")
     
-    st.metric("Días para la Carrera", (st.session_state['fecha_carrera'] - hoy).days)
-    st.write(f"Nivel: {st.session_state['nivel']}")
+    semanas_log = list(st.session_state['historial_entrenamientos'].keys())
+    sem_sel = st.selectbox("Historial de Semanas:", semanas_log, index=len(semanas_log)-1)
+    
+    dias_restantes = (st.session_state['fecha_carrera'] - hoy).days
+    st.metric("Días para la Meta", dias_restantes)
+    
     st.divider()
     if st.button("🔄 Re-ajustar esta semana"):
         del st.session_state['historial_entrenamientos'][semana_id]
         st.rerun()
-    if st.button("🗑️ Nuevo Objetivo (Reset)"):
+    if st.button("🗑️ Cambiar Deporte / Objetivo"):
         st.session_state.clear()
         st.rerun()
 
-# --- 7. VISUALIZACIÓN ---
+# --- 7. VISUALIZACIÓN DE ENTRENAMIENTOS ---
 plan_actual = st.session_state['historial_entrenamientos'][sem_sel]
 
 def extraer_dia(dia, texto):
     pattern = rf"\[{dia}\](.*?)(?=\[|$)"
     res = re.findall(pattern, texto, re.DOTALL | re.IGNORECASE)
-    return res[0].strip() if res else "Día de recuperación o no planificado."
+    return res[0].strip() if res else "Día de descanso o recuperación."
 
 dias_lista = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"]
 tabs = st.tabs(dias_lista)
 
+# Iconos dinámicos según el deporte
+icon_principal = "🏃‍♂️" if st.session_state['deporte'] != "Ciclismo" else "🚵‍♂️"
+
 for i, nombre_dia in enumerate(dias_lista):
     with tabs[i]:
         contenido = extraer_dia(nombre_dia, plan_actual)
-        
         if nombre_dia == dia_actual_es and sem_sel == semana_id:
             st.success("⚡ OBJETIVO DE HOY")
             
-        if "**BICICLETA**" in contenido.upper() or "**GYM" in contenido.upper():
-            partes = re.split(r'(\*\*BICICLETA\*\*|\*\*GYM/CORE\*\*|\*\*NUTRICIÓN\*\*|\*\*NUTRICION\*\*)', contenido, flags=re.IGNORECASE)
+        if "**ENTRENAMIENTO" in contenido.upper() or "**FUERZA" in contenido.upper():
+            # Buscamos las secciones principales
+            partes = re.split(r'(\*\*ENTRENAMIENTO PRINCIPAL\*\*|\*\*FUERZA/MOVILIDAD\*\*|\*\*NUTRICIÓN\*\*|\*\*NUTRICION\*\*)', contenido, flags=re.IGNORECASE)
+            
             for j in range(1, len(partes), 2):
                 titulo = partes[j].replace("*", "")
                 texto_seccion = partes[j+1].strip()
+                
                 with st.container(border=True):
-                    icon = "🚵‍♂️" if "BICI" in titulo.upper() else "🏋️" if "GYM" in titulo.upper() else "🍎"
+                    if "ENTRENAMIENTO" in titulo.upper(): icon = icon_principal
+                    elif "FUERZA" in titulo.upper(): icon = "🏋️"
+                    else: icon = "🍎"
+                    
                     st.markdown(f"#### {icon} {titulo}")
                     st.write(texto_seccion)
         else:
